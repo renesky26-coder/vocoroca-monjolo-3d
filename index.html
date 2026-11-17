@@ -1,0 +1,754 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Visualizador Voçoroca Monjolo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  /* Layout: cena 3D em tela cheia; painel de controle à esquerda, leitura de coordenadas e legenda nos cantos inferiores, perfil em faixa inferior. */
+  --bg: #e8edf1;
+  --panel: rgba(255, 255, 255, 0.95);
+  --line: #d3dae0;
+  --text: #1e2a33;
+  --muted: #5b6975;
+  --accent: #b5562a;          /* latossolo / laterita */
+  --accent-soft: rgba(181, 86, 42, 0.11);
+  --btn: #f3f5f7;
+  --font-display: "Barlow Condensed", "Arial Narrow", sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--text); font: 14px/1.45 var(--font-body); overflow: hidden; }
+#view { position: fixed; inset: 0; display: block; width: 100%; height: 100%; touch-action: none; }
+#view.picking { cursor: crosshair; }
+
+.panel { position: fixed; top: 16px; left: 16px; width: 300px; max-height: calc(100% - 32px); overflow-y: auto;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 16px;
+  backdrop-filter: blur(6px); z-index: 5; box-shadow: 0 2px 14px rgba(30, 42, 51, 0.10); }
+.panel header { display: flex; flex-direction: column; gap: 4px; }
+.head-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+h1 { font: 600 26px/1.05 var(--font-display); letter-spacing: 0.01em; margin: 0; text-wrap: balance; }
+.sub { color: var(--muted); font-size: 12px; }
+.credit { font-size: 12px; color: var(--text); border-top: 1px solid var(--line); padding-top: 6px; margin-top: 4px; }
+.credit b { font-weight: 600; }
+.lang { display: flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; flex-shrink: 0; }
+.lang button { background: none; border: 0; color: var(--muted); font: 500 11px var(--font-mono); padding: 4px 7px; cursor: pointer; }
+.lang button[aria-pressed="true"] { background: var(--accent); color: #ffffff; }
+
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.stat { border: 1px solid var(--line); border-radius: 6px; padding: 5px 7px; display: flex; flex-direction: column; gap: 1px; }
+.stat b { font: 500 13px var(--font-mono); font-variant-numeric: tabular-nums; }
+.stat span { color: var(--muted); font-size: 10.5px; line-height: 1.25; }
+
+section { display: flex; flex-direction: column; gap: 8px; }
+h2 { font: 600 13px var(--font-display); text-transform: uppercase; letter-spacing: 0.09em; color: var(--muted); margin: 0; }
+.layer { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.layer label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+input[type="checkbox"] { accent-color: var(--accent); width: 15px; height: 15px; margin: 0; }
+.seg { display: flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.seg button { flex: 1; background: none; border: 0; border-right: 1px solid var(--line); color: var(--text); font: 500 12px var(--font-body); padding: 6px 8px; cursor: pointer; }
+.seg button:last-child { border-right: 0; }
+.seg button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
+.seg.small button { font-size: 11px; padding: 3px 6px; }
+.range { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; align-items: center; font-size: 12px; }
+.range input { grid-column: 1 / -1; width: 100%; accent-color: var(--accent); margin: 0; }
+.range output { font: 12px var(--font-mono); color: var(--muted); }
+.btns { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.btn { background: var(--btn); border: 1px solid var(--line); color: var(--text); border-radius: 6px; padding: 7px 6px; font: 500 12px var(--font-body); cursor: pointer; }
+.btn:hover { border-color: #9aa7b2; }
+.btn[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.hint { color: var(--muted); font-size: 12px; margin: 0; }
+kbd { font: 11px var(--font-mono); border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; }
+.about { color: var(--muted); font-size: 11.5px; border-top: 1px solid var(--line); padding-top: 12px; margin: 0; }
+
+.readout { position: fixed; left: 332px; bottom: 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  padding: 7px 12px; font: 12px var(--font-mono); font-variant-numeric: tabular-nums; display: flex; gap: 14px; z-index: 4; white-space: nowrap; }
+.readout span i { font-style: normal; color: var(--muted); margin-right: 4px; }
+.legend { position: fixed; right: 16px; bottom: 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px;
+  display: flex; flex-direction: column; gap: 6px; width: 210px; z-index: 4; }
+.legend .ramp { height: 10px; border-radius: 3px; }
+.legend .ticks { display: flex; justify-content: space-between; font: 11px var(--font-mono); color: var(--muted); }
+.legend .t { font-size: 11px; color: var(--muted); }
+.legend .row { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--muted); }
+.legend .sw { width: 22px; height: 0; border-top: 2px solid #2a1d12; }
+.legend .sw.minor { border-top: 1px solid rgba(40, 28, 18, 0.7); }
+
+.north { position: fixed; top: 16px; right: 16px; width: 54px; height: 54px; border-radius: 50%; background: var(--panel); border: 1px solid var(--line); z-index: 4; }
+.north svg { width: 100%; height: 100%; }
+
+.mlabel { position: fixed; transform: translate(-50%, -130%); background: rgba(255, 255, 255, 0.96); box-shadow: 0 2px 8px rgba(30, 42, 51, 0.15); border: 1px solid var(--accent); color: var(--text);
+  border-radius: 6px; padding: 4px 8px; font: 12px var(--font-mono); white-space: nowrap; pointer-events: none; z-index: 3; }
+
+.profile { position: fixed; left: 332px; right: 242px; bottom: 60px; height: 200px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  padding: 10px 12px 8px; display: flex; flex-direction: column; gap: 6px; z-index: 4; }
+.profile[hidden] { display: none; }
+.profile .ph { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.profile .ph b { font: 600 15px var(--font-display); letter-spacing: 0.03em; }
+.profile .ph span { display: block; color: var(--muted); font: 11.5px var(--font-mono); }
+.profile .ph .acts { display: flex; gap: 6px; }
+.profile canvas { flex: 1; width: 100%; min-height: 0; }
+
+.pad { position: fixed; right: 16px; bottom: 160px; display: grid; grid-template-columns: repeat(3, 40px); gap: 4px; z-index: 4; }
+.pad[hidden] { display: none; }
+.pad button { height: 40px; background: var(--panel); border: 1px solid var(--line); color: var(--text); border-radius: 8px; font-size: 16px; cursor: pointer; user-select: none; touch-action: none; }
+.pad .u { grid-column: 2; } .pad .l { grid-column: 1; grid-row: 2; } .pad .d { grid-column: 2; grid-row: 2; } .pad .r { grid-column: 3; grid-row: 2; }
+
+.loading { position: fixed; inset: 0; display: grid; place-items: center; background: var(--bg); z-index: 10; font: 13px var(--font-mono); color: var(--muted); }
+.loading[hidden] { display: none; }
+.toast { position: fixed; left: 50%; top: 16px; transform: translateX(-50%); background: var(--panel); color: var(--text); border: 1px solid var(--accent); border-radius: 8px; padding: 7px 14px; font-size: 13px; z-index: 6; }
+.toast[hidden] { display: none; }
+
+@media (max-width: 760px) {
+  .panel { width: auto; right: 16px; max-height: 46%; padding: 12px; gap: 12px; }
+  .readout { left: 16px; right: 16px; bottom: 16px; font-size: 11px; gap: 8px; overflow-x: auto; }
+  .legend { display: none; }
+  .profile { left: 16px; right: 16px; bottom: 60px; height: 180px; }
+  .north { top: auto; bottom: 64px; right: 16px; width: 44px; height: 44px; }
+  .pad { bottom: 120px; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<canvas id="view" aria-label="Cena 3D da voçoroca"></canvas>
+
+<div class="loading" id="loading"><span id="loadmsg">Carregando dados…</span></div>
+<div class="toast" id="toast" hidden></div>
+
+<aside class="panel" id="panel">
+  <header>
+    <div class="head-row">
+      <h1 data-i18n="title">Voçoroca Monjolo</h1>
+      <div class="lang" role="group" aria-label="Idioma">
+        <button type="button" id="lang-pt" aria-pressed="true">PT</button>
+        <button type="button" id="lang-en" aria-pressed="false">EN</button>
+      </div>
+    </div>
+    <div class="sub" data-i18n="subtitle">Laser scanner terrestre Leica P50 · processamento Cyclone 3DR</div>
+    <div class="sub" id="crs">SIRGAS 2000 / UTM zona 21S (EPSG:31981)</div>
+    <div class="credit"><span data-i18n="createdby">Criado por</span> <b>Renesky Jean Mary</b> · <span data-i18n="role">Geógrafo</span></div>
+  </header>
+
+  <div class="stats" id="stats"></div>
+
+  <section aria-labelledby="h-layers">
+    <h2 id="h-layers" data-i18n="layers">Camadas</h2>
+    <div class="layer"><label><input type="checkbox" id="chk-mdt" checked> <span data-i18n="mdt">MDT (superfície)</span></label></div>
+    <div class="seg small" role="group" aria-label="Cor do MDT">
+      <button type="button" id="mdt-hyp" aria-pressed="true" data-i18n="hyp">Hipsométrico</button>
+      <button type="button" id="mdt-shade" aria-pressed="false" data-i18n="shade">Sombreamento</button>
+    </div>
+    <div class="range"><span data-i18n="opacity">Opacidade do MDT</span><output id="out-op">100%</output><input type="range" id="rng-op" min="0.15" max="1" step="0.05" value="1"></div>
+    <div class="layer"><label><input type="checkbox" id="chk-pts"> <span data-i18n="pts">Nuvem de pontos (solo)</span></label></div>
+    <div class="seg small" role="group" aria-label="Cor da nuvem">
+      <button type="button" id="pts-rgb" aria-pressed="true" data-i18n="rgb">Cor real (RGB)</button>
+      <button type="button" id="pts-elev" aria-pressed="false" data-i18n="elev">Elevação</button>
+    </div>
+    <div class="range"><span data-i18n="ptsize">Tamanho do ponto</span><output id="out-ps">12 cm</output><input type="range" id="rng-ps" min="0.02" max="0.3" step="0.01" value="0.12"></div>
+    <div class="layer"><label><input type="checkbox" id="chk-cur" checked> <span data-i18n="cur">Curvas de nível (0,2 m)</span></label></div>
+    <div class="range"><span data-i18n="exag">Exagero vertical</span><output id="out-ex">1,0×</output><input type="range" id="rng-ex" min="1" max="4" step="0.1" value="1"></div>
+  </section>
+
+  <section aria-labelledby="h-nav">
+    <h2 id="h-nav" data-i18n="nav">Navegação</h2>
+    <div class="seg" role="group" aria-label="Modo de navegação">
+      <button type="button" id="nav-orbit" aria-pressed="true" data-i18n="orbit">Órbita</button>
+      <button type="button" id="nav-fly" aria-pressed="false" data-i18n="fly">Voo</button>
+      <button type="button" id="nav-walk" aria-pressed="false" data-i18n="walk">Caminhar</button>
+    </div>
+    <p class="hint" id="nav-hint"></p>
+    <div class="btns">
+      <button type="button" class="btn" id="v-top" data-i18n="top">Vista de topo</button>
+      <button type="button" class="btn" id="v-persp" data-i18n="persp">Perspectiva</button>
+      <button type="button" class="btn" id="v-floor" data-i18n="floor">Fundo da voçoroca</button>
+    </div>
+  </section>
+
+  <section aria-labelledby="h-tools">
+    <h2 id="h-tools" data-i18n="tools">Ferramentas</h2>
+    <div class="btns">
+      <button type="button" class="btn" id="t-measure" aria-pressed="false" data-i18n="measure">Medir</button>
+      <button type="button" class="btn" id="t-profile" aria-pressed="false" data-i18n="profile">Perfil</button>
+      <button type="button" class="btn" id="t-clear" data-i18n="clear">Limpar</button>
+    </div>
+    <p class="hint" id="tool-hint" data-i18n="toolhint">Escolha uma ferramenta e clique em dois pontos do terreno.</p>
+  </section>
+
+  <p class="about" data-i18n="about">Dados: MDT de 10 cm, nuvem de pontos de solo (classe 2, sem vegetação e ruídos) e curvas de nível de 0,2 m, gerados no Cyclone 3DR a partir do levantamento com o Leica P50.</p>
+</aside>
+
+<div class="north" title="Norte"><svg viewBox="0 0 54 54" aria-hidden="true"><g id="north-g" transform="rotate(0 27 27)">
+  <polygon points="27,7 33,28 27,24 21,28" fill="#b5562a"/><polygon points="27,47 33,28 27,31 21,28" fill="#a7b2bb"/>
+  <text x="27" y="6.5" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="8" fill="#1e2a33" dy="0">N</text></g></svg></div>
+
+<div class="readout" id="readout" aria-live="off">
+  <span><i>E</i><b id="ro-e">—</b></span><span><i>N</i><b id="ro-n">—</b></span><span><i data-i18n="cota">Cota</i><b id="ro-z">—</b></span>
+</div>
+
+<div class="legend" id="legend">
+  <div class="t" data-i18n="legend">Altitude do MDT (m)</div>
+  <div class="ramp" id="ramp"></div>
+  <div class="ticks" id="ticks"></div>
+  <div class="row"><span class="sw"></span><span data-i18n="major">Curva mestra (1 m)</span></div>
+  <div class="row"><span class="sw minor"></span><span data-i18n="minor">Curva intermediária (0,2 m)</span></div>
+</div>
+
+<div class="profile" id="profile" hidden>
+  <div class="ph">
+    <div><b data-i18n="ptitle">Perfil topográfico</b> <span id="pinfo"></span></div>
+    <div class="acts"><button type="button" class="btn" id="p-copy" data-i18n="copycsv">Copiar CSV</button><button type="button" class="btn" id="p-close" data-i18n="close">Fechar</button></div>
+  </div>
+  <canvas id="pchart" aria-label="Gráfico do perfil topográfico"></canvas>
+</div>
+
+<div class="pad" id="pad" hidden>
+  <button type="button" class="u" data-k="f" aria-label="Frente">▲</button>
+  <button type="button" class="l" data-k="l" aria-label="Esquerda">◀</button>
+  <button type="button" class="d" data-k="b" aria-label="Trás">▼</button>
+  <button type="button" class="r" data-k="r" aria-label="Direita">▶</button>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+(() => {
+"use strict";
+
+/* ---------------- textos PT / EN ---------------- */
+const T = {
+  pt: {
+    title: "Voçoroca Monjolo", subtitle: "Laser scanner terrestre Leica P50 · processamento Cyclone 3DR",
+    layers: "Camadas", mdt: "MDT (superfície)", hyp: "Hipsométrico", shade: "Sombreamento", opacity: "Opacidade do MDT",
+    pts: "Nuvem de pontos (solo)", rgb: "Cor real (RGB)", elev: "Elevação", ptsize: "Tamanho do ponto",
+    cur: "Curvas de nível (0,2 m)", exag: "Exagero vertical", nav: "Navegação", orbit: "Órbita", fly: "Voo", walk: "Caminhar",
+    top: "Vista de topo", persp: "Perspectiva", floor: "Fundo da voçoroca", tools: "Ferramentas", measure: "Medir", profile: "Perfil", clear: "Limpar",
+    toolhint: "Escolha uma ferramenta e clique em dois pontos do terreno.",
+    hint_measure_a: "Medir: clique no primeiro ponto.", hint_measure_b: "Medir: clique no segundo ponto.",
+    hint_profile_a: "Perfil: clique no início da linha.", hint_profile_b: "Perfil: clique no fim da linha.",
+    about: "Dados: MDT de 10 cm, nuvem de pontos de solo (classe 2, sem vegetação e ruídos) e curvas de nível de 0,2 m, gerados no Cyclone 3DR a partir do levantamento com o Leica P50.",
+    cota: "Cota", legend: "Altitude do MDT (m)", major: "Curva mestra (1 m)", minor: "Curva intermediária (0,2 m)",
+    ptitle: "Perfil topográfico", copycsv: "Copiar CSV", close: "Fechar",
+    s_area: "Área do MDT", s_relief: "Amplitude", s_res: "Resolução", s_pts: "Pontos de solo", s_cmin: "Cota mínima", s_cmax: "Cota máxima",
+    nav_orbit: "Arraste para girar, botão direito para deslocar, roda para aproximar.",
+    nav_fly: "Arraste para olhar. W A S D ou setas para mover, Q / E para descer e subir, Shift acelera.",
+    nav_walk: "Altura dos olhos 1,6 m sobre o MDT. Arraste para olhar, W A S D ou setas para andar.",
+    dist: "Distância (m)", elevax: "Cota (m)", m3d: "3D", mhz: "Hz", mdz: "ΔZ", mslope: "decl.",
+    pinfo: (L, dz) => `comprimento ${L} m · desnível ${dz} m`, copied: "Perfil copiado como CSV.", copyfail: "Não foi possível copiar neste navegador.",
+    loading: "Carregando dados…", building: "Montando a cena 3D…", nowebgl: "Este navegador não conseguiu iniciar o WebGL, necessário para a cena 3D.",
+    sample: "Perfil de exemplo, transversal à voçoroca", outside: "Clique sobre a área do MDT.", createdby: "Criado por", role: "Geógrafo"
+  },
+  en: {
+    title: "Monjolo Gully", subtitle: "Leica P50 terrestrial laser scanner · processed in Cyclone 3DR",
+    layers: "Layers", mdt: "DTM (surface)", hyp: "Hypsometric", shade: "Hillshade", opacity: "DTM opacity",
+    pts: "Point cloud (ground)", rgb: "True color (RGB)", elev: "Elevation", ptsize: "Point size",
+    cur: "Contour lines (0.2 m)", exag: "Vertical exaggeration", nav: "Navigation", orbit: "Orbit", fly: "Fly", walk: "Walk",
+    top: "Top view", persp: "Perspective", floor: "Gully floor", tools: "Tools", measure: "Measure", profile: "Profile", clear: "Clear",
+    toolhint: "Pick a tool and click two points on the terrain.",
+    hint_measure_a: "Measure: click the first point.", hint_measure_b: "Measure: click the second point.",
+    hint_profile_a: "Profile: click the start of the line.", hint_profile_b: "Profile: click the end of the line.",
+    about: "Data: 10 cm DTM, ground point cloud (class 2, vegetation and noise removed) and 0.2 m contour lines, produced in Cyclone 3DR from the Leica P50 survey.",
+    cota: "Elev.", legend: "DTM elevation (m)", major: "Index contour (1 m)", minor: "Intermediate contour (0.2 m)",
+    ptitle: "Topographic profile", copycsv: "Copy CSV", close: "Close",
+    s_area: "DTM area", s_relief: "Relief", s_res: "Resolution", s_pts: "Ground points", s_cmin: "Min. elevation", s_cmax: "Max. elevation",
+    nav_orbit: "Drag to rotate, right button to pan, wheel to zoom.",
+    nav_fly: "Drag to look. W A S D or arrow keys to move, Q / E to go down and up, Shift for speed.",
+    nav_walk: "Eye height 1.6 m above the DTM. Drag to look, W A S D or arrow keys to walk.",
+    dist: "Distance (m)", elevax: "Elevation (m)", m3d: "3D", mhz: "Hz", mdz: "ΔZ", mslope: "slope",
+    pinfo: (L, dz) => `length ${L} m · drop ${dz} m`, copied: "Profile copied as CSV.", copyfail: "Copy is not available in this browser.",
+    loading: "Loading data…", building: "Building the 3D scene…", nowebgl: "This browser could not start WebGL, which the 3D scene needs.",
+    sample: "Sample profile across the gully", outside: "Click inside the DTM area.", createdby: "Created by", role: "Geographer"
+  }
+};
+let lang = "pt";
+try { if (localStorage.getItem("voc-lang") === "en") lang = "en"; } catch (e) {}
+const t = k => T[lang][k];
+const loc = () => (lang === "pt" ? "pt-BR" : "en-US");
+const fmt = (v, d = 2) => Number.isFinite(v) ? v.toLocaleString(loc(), { minimumFractionDigits: d, maximumFractionDigits: d }) : "—";
+
+const fmtC = v => v.toLocaleString(loc(), { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: false });
+const $ = id => document.getElementById(id);
+const toast = msg => { const el = $("toast"); el.textContent = msg; el.hidden = false; clearTimeout(toast._t); toast._t = setTimeout(() => el.hidden = true, 2600); };
+
+/* ---------------- rampa hipsométrica ---------------- */
+const RAMP = [[0, "#24456b"], [0.18, "#2f7f8a"], [0.38, "#7fb46a"], [0.58, "#e3d27a"], [0.78, "#c4834a"], [0.92, "#9a5a3a"], [1, "#efe7dc"]];
+const RAMP_RGB = RAMP.map(([p, h]) => [p, parseInt(h.slice(1, 3), 16) / 255, parseInt(h.slice(3, 5), 16) / 255, parseInt(h.slice(5, 7), 16) / 255]);
+function rampColor(u, out, o) {
+  u = Math.min(1, Math.max(0, u));
+  for (let i = 1; i < RAMP_RGB.length; i++) {
+    const a = RAMP_RGB[i - 1], b = RAMP_RGB[i];
+    if (u <= b[0]) { const f = (u - a[0]) / (b[0] - a[0]); out[o] = a[1] + (b[1] - a[1]) * f; out[o + 1] = a[2] + (b[2] - a[2]) * f; out[o + 2] = a[3] + (b[3] - a[3]) * f; return; }
+  }
+}
+$("ramp").style.background = "linear-gradient(90deg," + RAMP.map(([p, h]) => `${h} ${p * 100}%`).join(",") + ")";
+
+/* ---------------- dados ---------------- */
+const b64 = (s, Type) => { const bin = atob(s); const u8 = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i); return new Type(u8.buffer); };
+const getJSON = p => fetch(p).then(r => { if (!r.ok) throw new Error(p + " " + r.status); return r.json(); });
+
+let META, G; // G = grade do MDT
+function heightAt(x, y) { // x, y relativos (m) → altura relativa a Z0 (m) ou NaN
+  const c = (x - G.x0) / G.dx - 0.5, r = (G.y0 - y) / G.dy - 0.5;
+  const c0 = Math.floor(c), r0 = Math.floor(r);
+  if (c0 < 0 || r0 < 0 || c0 + 1 >= G.w || r0 + 1 >= G.h) return NaN;
+  const fx = c - c0, fy = r - r0, w = G.w, H = G.z;
+  const a = H[r0 * w + c0], b = H[r0 * w + c0 + 1], d = H[(r0 + 1) * w + c0], e = H[(r0 + 1) * w + c0 + 1];
+  if (a === a && b === b && d === d && e === e) return (a * (1 - fx) + b * fx) * (1 - fy) + (d * (1 - fx) + e * fx) * fy;
+  const near = [[a, (1 - fx) * (1 - fy)], [b, fx * (1 - fy)], [d, (1 - fx) * fy], [e, fx * fy]].filter(v => v[0] === v[0]).sort((p, q) => q[1] - p[1]);
+  return near.length && near[0][1] > 0.2 ? near[0][0] : NaN;
+}
+
+/* ---------------- cena ---------------- */
+let renderer;
+try { renderer = new THREE.WebGLRenderer({ canvas: $("view"), antialias: true }); }
+catch (e) { $("loadmsg").textContent = t("nowebgl"); return; }
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setClearColor(0xe8edf1);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(50, 1, 0.05, 2000);
+camera.up.set(0, 0, 1);
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true; controls.dampingFactor = 0.1; controls.screenSpacePanning = true; controls.maxPolarAngle = Math.PI * 0.495;
+scene.add(new THREE.HemisphereLight(0xdfe6ee, 0x2a2118, 0.55));
+const sun = new THREE.DirectionalLight(0xffffff, 0.95);
+const az = 315 * Math.PI / 180, alt = 45 * Math.PI / 180; // sol de noroeste, como no sombreamento clássico
+sun.position.set(Math.sin(az) * Math.cos(alt), Math.cos(az) * Math.cos(alt), Math.sin(alt));
+scene.add(sun);
+const world = new THREE.Group(); scene.add(world);
+
+let mdtMesh, mdtColHyp, mdtColShade, pts, ptsColRGB, ptsColElev, curMajor, curMinor, center = new THREE.Vector3(), diag = 50;
+
+function buildMDT(m) {
+  const w = m.w, h = m.h, q = b64(m.data, Uint16Array);
+  const z = new Float32Array(w * h);
+  for (let i = 0; i < z.length; i++) z[i] = q[i] === 65535 ? NaN : q[i] / 1000;
+  G = { w, h, dx: m.dx, dy: m.dy, x0: m.left - META.E0, y0: m.top - META.N0, z };
+  const pos = new Float32Array(w * h * 3), hyp = new Float32Array(w * h * 3), shd = new Float32Array(w * h * 3);
+  const zr0 = META.zmin - META.Z0, zr = META.zmax - META.zmin;
+  for (let r = 0; r < h; r++) for (let c = 0; c < w; c++) {
+    const i = r * w + c, o = i * 3, zz = z[i];
+    pos[o] = G.x0 + (c + 0.5) * m.dx; pos[o + 1] = G.y0 - (r + 0.5) * m.dy; pos[o + 2] = zz === zz ? zz : 0;
+    if (zz === zz) rampColor((zz - zr0) / zr, hyp, o);
+    shd[o] = 0.83; shd[o + 1] = 0.80; shd[o + 2] = 0.76;
+  }
+  const idx = [];
+  for (let r = 0; r < h - 1; r++) for (let c = 0; c < w - 1; c++) {
+    const a = r * w + c, b = a + 1, d = a + w, e = d + 1;
+    const va = z[a] === z[a], vb = z[b] === z[b], vd = z[d] === z[d], ve = z[e] === z[e];
+    if (va && vd && vb) idx.push(a, d, b);
+    if (vb && vd && ve) idx.push(b, d, e);
+    if (!vb && va && vd && ve) idx.push(a, d, e);
+    if (!vd && va && vb && ve) idx.push(a, e, b);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  g.setIndex(new THREE.BufferAttribute(new Uint32Array(idx), 1));
+  g.computeVertexNormals();
+  mdtColHyp = new THREE.BufferAttribute(hyp, 3); mdtColShade = new THREE.BufferAttribute(shd, 3);
+  g.setAttribute("color", mdtColHyp);
+  const mat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide, transparent: false });
+  mdtMesh = new THREE.Mesh(g, mat);
+  world.add(mdtMesh);
+  g.computeBoundingBox();
+  const bb = g.boundingBox; bb.getCenter(center); diag = bb.min.distanceTo(bb.max);
+}
+
+function buildPoints(n) {
+  const q = b64(n.xyz, Uint16Array), rgb = new Uint8Array(b64(n.rgb, Uint8Array).buffer);
+  const N = n.n, pos = new Float32Array(N * 3), cr = new Float32Array(N * 3), ce = new Float32Array(N * 3);
+  const zr0 = META.zmin - META.Z0, zr = META.zmax - META.zmin;
+  for (let i = 0; i < N * 3; i++) { pos[i] = q[i] * n.unit; cr[i] = rgb[i] / 255; }
+  for (let i = 0; i < N; i++) rampColor((pos[i * 3 + 2] - zr0) / zr, ce, i * 3);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  ptsColRGB = new THREE.BufferAttribute(cr, 3); ptsColElev = new THREE.BufferAttribute(ce, 3);
+  g.setAttribute("color", ptsColRGB);
+  pts = new THREE.Points(g, new THREE.PointsMaterial({ size: 0.12, vertexColors: true, sizeAttenuation: true }));
+  pts.visible = false;
+  world.add(pts);
+}
+
+function buildContours(cv) {
+  const V = b64(cv.xyz, Float32Array), maj = [], min = [];
+  for (let L = 0; L < cv.n_lines; L++) {
+    const s = cv.start[L], e = L + 1 < cv.n_lines ? cv.start[L + 1] : cv.n_verts;
+    const isMaj = Math.abs(cv.elev[L] - Math.round(cv.elev[L])) < 1e-3, arr = isMaj ? maj : min;
+    for (let i = s; i < e - 1; i++) arr.push(V[i * 3], V[i * 3 + 1], V[i * 3 + 2] + 0.02, V[i * 3 + 3], V[i * 3 + 4], V[i * 3 + 5] + 0.02);
+  }
+  const mk = (arr, color, opacity) => {
+    const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(arr), 3));
+    return new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color, transparent: opacity < 1, opacity }));
+  };
+  curMajor = mk(maj, 0x2a1d12, 1); curMinor = mk(min, 0x3b2a1c, 0.5);
+  world.add(curMajor, curMinor);
+}
+
+/* ---------------- picking por marcha do raio sobre o MDT ---------------- */
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
+let exag = 1;
+function pick(clientX, clientY) {
+  const rect = renderer.domElement.getBoundingClientRect();
+  ndc.set(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+  ray.setFromCamera(ndc, camera);
+  const o = ray.ray.origin, d = ray.ray.direction, tmax = camera.position.distanceTo(center) + diag * 2;
+  let tPrev = 0, tt = 0.05, above = null;
+  while (tt < tmax) {
+    const x = o.x + d.x * tt, y = o.y + d.y * tt, zc = o.z + d.z * tt, hz = heightAt(x, y);
+    if (hz === hz) {
+      if (zc <= hz * exag) {
+        if (above === null) return null;
+        let a = tPrev, b = tt;
+        for (let k = 0; k < 14; k++) { const m = (a + b) / 2, hm = heightAt(o.x + d.x * m, o.y + d.y * m); if (hm === hm && o.z + d.z * m <= hm * exag) b = m; else a = m; }
+        const px = o.x + d.x * b, py = o.y + d.y * b;
+        return { x: px, y: py, h: heightAt(px, py) };
+      }
+      above = true;
+    }
+    tPrev = tt; tt += Math.max(0.02, tt * 0.0025);
+  }
+  return null;
+}
+
+/* ---------------- câmera e navegação ---------------- */
+let mode = "orbit", yaw = 0, pitch = 0, groundH = null;
+const keys = new Set();
+function setView(kind) {
+  setMode("orbit");
+  const c = center.clone(); c.z *= exag;
+  if (kind === "top") { camera.position.set(c.x, c.y - 0.01, c.z + diag * 1.15); }
+  else { camera.position.set(c.x + diag * 0.82, c.y - diag * 0.3, c.z + diag * 0.55); }
+  controls.target.copy(c); controls.update();
+}
+function floorView() { // ponto mais baixo do MDT, olhando para montante
+  let best = Infinity, bi = 0;
+  for (let i = 0; i < G.z.length; i++) if (G.z[i] < best) { best = G.z[i]; bi = i; }
+  const c = bi % G.w, r = Math.floor(bi / G.w);
+  const x = G.x0 + (c + 0.5) * G.dx, y = G.y0 - (r + 0.5) * G.dy;
+  let sx = x + (center.x - x) * 0.2, sy = y + (center.y - y) * 0.2;
+  for (let k = 0; k < 10 && !(heightAt(sx, sy) === heightAt(sx, sy)); k++) { sx = (sx + x) / 2; sy = (sy + y) / 2; }
+  const yaw0 = Math.atan2(center.x - sx, center.y - sy);
+  setMode("walk", { x: sx, y: sy, yaw: yaw0, pitch: 0.05 });
+}
+function dirFromYawPitch(v) { v.set(Math.sin(yaw) * Math.cos(pitch), Math.cos(yaw) * Math.cos(pitch), Math.sin(pitch)); return v; }
+const _f = new THREE.Vector3();
+function setMode(m, start) {
+  if (m !== "orbit" && mode === "orbit") {
+    camera.getWorldDirection(_f); yaw = Math.atan2(_f.x, _f.y); pitch = Math.asin(Math.max(-1, Math.min(1, _f.z)));
+    if (m === "walk") {
+      const p = start || { x: controls.target.x, y: controls.target.y };
+      camera.position.x = p.x; camera.position.y = p.y; pitch = 0.05;
+    }
+  }
+  if (start) { camera.position.x = start.x; camera.position.y = start.y; yaw = start.yaw; pitch = start.pitch; }
+  if (m === "orbit" && mode !== "orbit") {
+    dirFromYawPitch(_f);
+    const hit = pickCenter();
+    controls.target.copy(hit || camera.position.clone().addScaledVector(_f, 8));
+  }
+  mode = m; controls.enabled = m === "orbit";
+  if (m === "walk") { const hz = heightAt(camera.position.x, camera.position.y); groundH = hz === hz ? hz : (groundH ?? center.z); camera.position.z = groundH * exag + 1.6; }
+  for (const k of ["orbit", "fly", "walk"]) $("nav-" + k).setAttribute("aria-pressed", String(k === m));
+  $("pad").hidden = m === "orbit";
+  $("nav-hint").textContent = t("nav_" + m);
+  if (m !== "orbit") lookFromAngles();
+}
+function pickCenter() { const r = renderer.domElement.getBoundingClientRect(); const p = pick(r.left + r.width / 2, r.top + r.height / 2); return p ? new THREE.Vector3(p.x, p.y, p.h * exag) : null; }
+function lookFromAngles() { dirFromYawPitch(_f); camera.lookAt(camera.position.clone().add(_f)); }
+
+let lookDrag = null;
+const cv = renderer.domElement;
+cv.addEventListener("pointerdown", e => {
+  cv._down = { x: e.clientX, y: e.clientY };
+  if (mode !== "orbit") { lookDrag = { x: e.clientX, y: e.clientY }; cv.setPointerCapture(e.pointerId); }
+});
+cv.addEventListener("pointermove", e => {
+  if (lookDrag) {
+    yaw += (e.clientX - lookDrag.x) * 0.004; pitch -= (e.clientY - lookDrag.y) * 0.004;
+    pitch = Math.max(-1.45, Math.min(1.45, pitch)); lookDrag = { x: e.clientX, y: e.clientY }; lookFromAngles();
+  }
+  hoverXY = { x: e.clientX, y: e.clientY };
+});
+cv.addEventListener("pointerup", e => {
+  lookDrag = null;
+  const d = cv._down; if (!d) return;
+  if (Math.hypot(e.clientX - d.x, e.clientY - d.y) < 5) onClick(e.clientX, e.clientY);
+});
+cv.addEventListener("pointerleave", () => { hoverXY = null; });
+window.addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT") return;
+  keys.add(e.key.toLowerCase()); if (e.shiftKey) keys.add("shift");
+  if (mode !== "orbit" && ["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(e.key.toLowerCase())) e.preventDefault();
+});
+window.addEventListener("keyup", e => { keys.delete(e.key.toLowerCase()); if (!e.shiftKey) keys.delete("shift"); });
+window.addEventListener("blur", () => keys.clear());
+for (const b of $("pad").querySelectorAll("button")) {
+  const k = "pad-" + b.dataset.k;
+  b.addEventListener("pointerdown", e => { e.preventDefault(); keys.add(k); });
+  for (const ev of ["pointerup", "pointerleave", "pointercancel"]) b.addEventListener(ev, () => keys.delete(k));
+}
+function moveStep(dt) {
+  if (mode === "orbit") return;
+  const sp = (mode === "walk" ? 2.2 : 4) * (keys.has("shift") ? 3 : 1) * dt;
+  let f = 0, s = 0, u = 0;
+  if (keys.has("w") || keys.has("arrowup") || keys.has("pad-f")) f += 1;
+  if (keys.has("s") || keys.has("arrowdown") || keys.has("pad-b")) f -= 1;
+  if (keys.has("d") || keys.has("arrowright") || keys.has("pad-r")) s += 1;
+  if (keys.has("a") || keys.has("arrowleft") || keys.has("pad-l")) s -= 1;
+  if (keys.has("e")) u += 1; if (keys.has("q")) u -= 1;
+  if (!f && !s && !u && mode === "fly") return;
+  const p = camera.position;
+  if (mode === "fly") { dirFromYawPitch(_f); p.addScaledVector(_f, f * sp); p.z += u * sp; }
+  else { p.x += Math.sin(yaw) * f * sp; p.y += Math.cos(yaw) * f * sp; }
+  p.x += Math.cos(yaw) * s * sp; p.y -= Math.sin(yaw) * s * sp;
+  if (mode === "walk") { const hz = heightAt(p.x, p.y); if (hz === hz) groundH = hz; p.z = groundH * exag + 1.6; }
+  lookFromAngles();
+}
+
+/* ---------------- ferramentas: medir e perfil ---------------- */
+let tool = null, clickA = null;
+const toolGroup = new THREE.Group(); world.add(toolGroup);
+const markerMat = new THREE.PointsMaterial({ color: 0xb5562a, size: 9, sizeAttenuation: false, depthTest: false });
+const lineMat = new THREE.LineBasicMaterial({ color: 0xb5562a, depthTest: false });
+let measure = null, profileData = null, mlabel = null, profMarker = null;
+function setTool(k) {
+  tool = tool === k ? null : k; clickA = null;
+  $("t-measure").setAttribute("aria-pressed", String(tool === "measure"));
+  $("t-profile").setAttribute("aria-pressed", String(tool === "profile"));
+  cv.classList.toggle("picking", !!tool);
+  $("tool-hint").textContent = tool ? t("hint_" + tool + "_a") : t("toolhint");
+}
+function clearTools() {
+  while (toolGroup.children.length) { const c = toolGroup.children.pop(); c.geometry.dispose(); }
+  if (mlabel) { mlabel.remove(); mlabel = null; }
+  measure = null; profileData = null; profMarker = null; $("profile").hidden = true; updateOffset(); clickA = null;
+  if (tool) $("tool-hint").textContent = t("hint_" + tool + "_a");
+}
+function addMarker(p) {
+  const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.BufferAttribute(new Float32Array([p.x, p.y, p.h + 0.03]), 3));
+  const m = new THREE.Points(g, markerMat); m.renderOrder = 10; toolGroup.add(m); return m;
+}
+function addLine(arr) {
+  const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(arr), 3));
+  const l = new THREE.Line(g, lineMat); l.renderOrder = 9; toolGroup.add(l); return l;
+}
+function onClick(x, y) {
+  if (!tool) return;
+  const p = pick(x, y);
+  if (!p) { toast(t("outside")); return; }
+  if (!clickA) {
+    clearTools(); clickA = p; addMarker(p);
+    $("tool-hint").textContent = t("hint_" + tool + "_b");
+    return;
+  }
+  const A = clickA, B = p; clickA = null; addMarker(B);
+  if (tool === "measure") {
+    addLine([A.x, A.y, A.h + 0.03, B.x, B.y, B.h + 0.03]);
+    measure = { A, B }; renderMeasureLabel();
+  } else makeProfile(A, B);
+  $("tool-hint").textContent = t("hint_" + tool + "_a");
+}
+function renderMeasureLabel() {
+  if (!measure) return;
+  const { A, B } = measure, hz = Math.hypot(B.x - A.x, B.y - A.y), dz = B.h - A.h, d3 = Math.hypot(hz, dz);
+  const slope = Math.atan2(Math.abs(dz), hz) * 180 / Math.PI;
+  if (!mlabel) { mlabel = document.createElement("div"); mlabel.className = "mlabel"; document.body.appendChild(mlabel); }
+  mlabel.textContent = `${t("m3d")} ${fmt(d3)} m · ${t("mhz")} ${fmt(hz)} m · ${t("mdz")} ${fmt(dz)} m · ${t("mslope")} ${fmt(slope, 1)}°`;
+}
+function makeProfile(A, B, sampleLabel) {
+  const L = Math.hypot(B.x - A.x, B.y - A.y), n = Math.max(2, Math.min(800, Math.round(L / 0.05)));
+  const d = [], z = [], line = [];
+  for (let i = 0; i <= n; i++) {
+    const f = i / n, x = A.x + (B.x - A.x) * f, y = A.y + (B.y - A.y) * f, h = heightAt(x, y);
+    d.push(L * f); z.push(h === h ? h + META.Z0 : NaN);
+    if (h === h) line.push(x, y, h + 0.04);
+  }
+  addLine(line);
+  profileData = { A, B, d, z, L, label: sampleLabel || "" };
+  const pm = new THREE.BufferGeometry(); pm.setAttribute("position", new THREE.BufferAttribute(new Float32Array(3), 3));
+  profMarker = new THREE.Points(pm, new THREE.PointsMaterial({ color: 0x1e2a33, size: 11, sizeAttenuation: false, depthTest: false }));
+  profMarker.visible = false; profMarker.renderOrder = 11; toolGroup.add(profMarker);
+  $("profile").hidden = false; updateOffset(); drawProfile();
+}
+let profHover = null;
+function niceStep(range, target) { const raw = range / target, p = Math.pow(10, Math.floor(Math.log10(raw))), m = raw / p; return (m < 1.5 ? 1 : m < 3 ? 2 : m < 7 ? 5 : 10) * p; }
+function drawProfile() {
+  const P = profileData; if (!P) return;
+  const c = $("pchart"), dpr = Math.min(window.devicePixelRatio || 1, 2), W = c.clientWidth, H = c.clientHeight;
+  if (!W || !H) return;
+  c.width = W * dpr; c.height = H * dpr;
+  const g = c.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+  const zs = P.z.filter(v => v === v); const dz = (zs.length ? zs[zs.length - 1] - zs[0] : NaN);
+  $("pinfo").textContent = (P.label ? P.label + " · " : "") + t("pinfo")(fmt(P.L), fmt(dz));
+  if (!zs.length) return;
+  let zmin = Math.min(...zs), zmax = Math.max(...zs); const pad = Math.max(0.2, (zmax - zmin) * 0.08); zmin -= pad; zmax += pad;
+  const ml = 46, mr = 10, mt = 6, mb = 30, pw = W - ml - mr, ph = H - mt - mb;
+  const X = v => ml + v / P.L * pw, Y = v => mt + (zmax - v) / (zmax - zmin) * ph;
+  g.font = "11px 'IBM Plex Mono', monospace"; g.fillStyle = "#5b6975"; g.strokeStyle = "rgba(30,42,51,0.10)"; g.lineWidth = 1;
+  const ys = niceStep(zmax - zmin, 4), xs = niceStep(P.L, 6);
+  g.textAlign = "right"; g.textBaseline = "middle";
+  for (let v = Math.ceil(zmin / ys) * ys; v <= zmax; v += ys) { g.beginPath(); g.moveTo(ml, Y(v) + 0.5); g.lineTo(W - mr, Y(v) + 0.5); g.stroke(); g.fillText(fmt(v, ys < 1 ? 1 : 0), ml - 6, Y(v)); }
+  g.textAlign = "center"; g.textBaseline = "top";
+  for (let v = 0; v <= P.L + 1e-6; v += xs) { g.beginPath(); g.moveTo(X(v) + 0.5, mt); g.lineTo(X(v) + 0.5, mt + ph); g.stroke(); g.fillText(fmt(v, xs < 1 ? 1 : 0), X(v), mt + ph + 4); }
+  g.fillText(t("dist"), ml + pw / 2, mt + ph + 16);
+  g.save(); g.translate(11, mt + ph / 2); g.rotate(-Math.PI / 2); g.textBaseline = "middle"; g.fillText(t("elevax"), 0, 0); g.restore();
+  // área e linha
+  g.beginPath(); let on = false, firstX = 0;
+  for (let i = 0; i < P.d.length; i++) { const v = P.z[i]; if (v !== v) { on = false; continue; } if (!on) { g.moveTo(X(P.d[i]), Y(v)); on = true; } else g.lineTo(X(P.d[i]), Y(v)); }
+  g.strokeStyle = "#b5562a"; g.lineWidth = 2; g.stroke();
+  g.lineTo(X(P.L), mt + ph); g.lineTo(X(P.d[P.z.findIndex(v => v === v)]), mt + ph); g.closePath();
+  g.fillStyle = "rgba(181,86,42,0.12)"; g.fill();
+  // extremos
+  const iMin = P.z.indexOf(Math.min(...zs));
+  g.fillStyle = "#1e2a33"; g.beginPath(); g.arc(X(P.d[iMin]), Y(P.z[iMin]), 3.5, 0, Math.PI * 2); g.fill();
+  g.textAlign = "left"; g.textBaseline = "bottom"; g.fillText(fmt(P.z[iMin]) + " m", X(P.d[iMin]) + 6, Y(P.z[iMin]) - 3);
+  if (profHover !== null) {
+    const i = profHover, v = P.z[i];
+    g.strokeStyle = "rgba(30,42,51,0.35)"; g.beginPath(); g.moveTo(X(P.d[i]) + 0.5, mt); g.lineTo(X(P.d[i]) + 0.5, mt + ph); g.stroke();
+    if (v === v) { g.fillStyle = "#1e2a33"; g.beginPath(); g.arc(X(P.d[i]), Y(v), 4, 0, Math.PI * 2); g.fill();
+      const txt = `${fmt(P.d[i])} m · ${fmt(v)} m`; g.textAlign = X(P.d[i]) > ml + pw * 0.7 ? "right" : "left"; g.textBaseline = "top";
+      g.fillText(txt, X(P.d[i]) + (g.textAlign === "right" ? -8 : 8), mt + 4); }
+  }
+}
+$("pchart").addEventListener("pointermove", e => {
+  const P = profileData; if (!P) return;
+  const r = e.currentTarget.getBoundingClientRect(), ml = 46, pw = r.width - ml - 10;
+  const dv = Math.max(0, Math.min(P.L, (e.clientX - r.left - ml) / pw * P.L));
+  profHover = Math.round(dv / P.L * (P.d.length - 1));
+  const f = profHover / (P.d.length - 1), x = P.A.x + (P.B.x - P.A.x) * f, y = P.A.y + (P.B.y - P.A.y) * f, h = heightAt(x, y);
+  if (profMarker && h === h) { const a = profMarker.geometry.attributes.position; a.setXYZ(0, x, y, h + 0.05); a.needsUpdate = true; profMarker.visible = true; }
+  drawProfile();
+});
+$("pchart").addEventListener("pointerleave", () => { profHover = null; if (profMarker) profMarker.visible = false; drawProfile(); });
+$("p-close").addEventListener("click", clearTools);
+$("p-copy").addEventListener("click", async () => {
+  const P = profileData; if (!P) return;
+  const rows = ["distancia_m;E;N;cota_m"];
+  for (let i = 0; i < P.d.length; i++) {
+    const f = i / (P.d.length - 1), x = P.A.x + (P.B.x - P.A.x) * f + META.E0, y = P.A.y + (P.B.y - P.A.y) * f + META.N0;
+    rows.push([P.d[i].toFixed(3), x.toFixed(3), y.toFixed(3), P.z[i] === P.z[i] ? P.z[i].toFixed(3) : ""].join(";"));
+  }
+  try { await navigator.clipboard.writeText(rows.join("\n")); toast(t("copied")); } catch (e) { toast(t("copyfail")); }
+});
+
+/* ---------------- interface ---------------- */
+function applyLang() {
+  document.documentElement.lang = lang === "pt" ? "pt-BR" : "en";
+  document.title = lang === "pt" ? "Visualizador Voçoroca Monjolo" : "Monjolo Gully Viewer";
+  for (const el of document.querySelectorAll("[data-i18n]")) el.textContent = t(el.dataset.i18n);
+  $("lang-pt").setAttribute("aria-pressed", String(lang === "pt")); $("lang-en").setAttribute("aria-pressed", String(lang === "en"));
+  $("crs").textContent = (lang === "pt" ? "SIRGAS 2000 / UTM zona 21S" : "SIRGAS 2000 / UTM zone 21S") + " (EPSG:31981)";
+  if (META) renderStats();
+  $("nav-hint").textContent = t("nav_" + mode);
+  $("tool-hint").textContent = tool ? t("hint_" + tool + (clickA ? "_b" : "_a")) : t("toolhint");
+  updateOutputs(); renderMeasureLabel();
+  if (profileData && profileData.label) profileData.label = t("sample");
+  drawProfile();
+}
+function renderStats() {
+  const M = META, s = [
+    [fmt(M.area_mdt, 0) + " m²", t("s_area")], [fmt(M.zmax - M.zmin) + " m", t("s_relief")],
+    [fmt(M.zmin) + " m", t("s_cmin")], [fmt(M.zmax) + " m", t("s_cmax")],
+    [fmt(M.res * 100, 0) + " cm", t("s_res")], [M.n_pontos.toLocaleString(loc()), t("s_pts")]];
+  $("stats").innerHTML = s.map(([v, l]) => `<div class="stat"><b>${v}</b><span>${l}</span></div>`).join("");
+  const n = 5, ticks = [];
+  for (let i = 0; i < n; i++) ticks.push(`<span>${fmt(M.zmin + (M.zmax - M.zmin) * i / (n - 1), 1)}</span>`);
+  $("ticks").innerHTML = ticks.join("");
+}
+function updateOutputs() {
+  $("out-op").textContent = Math.round($("rng-op").value * 100) + "%";
+  $("out-ps").textContent = fmt($("rng-ps").value * 100, 0) + " cm";
+  $("out-ex").textContent = fmt(+$("rng-ex").value, 1) + "×";
+}
+function seg(ids, on, fn) { for (const id of ids) $(id).addEventListener("click", () => { for (const j of ids) $(j).setAttribute("aria-pressed", String(j === id)); fn(id); }); }
+
+function wireUI() {
+  $("lang-pt").addEventListener("click", () => { lang = "pt"; try { localStorage.setItem("voc-lang", "pt"); } catch (e) {} applyLang(); });
+  $("lang-en").addEventListener("click", () => { lang = "en"; try { localStorage.setItem("voc-lang", "en"); } catch (e) {} applyLang(); });
+  $("chk-mdt").addEventListener("change", e => { mdtMesh.visible = e.target.checked; $("legend").style.opacity = e.target.checked || (pts.visible && pts.geometry.attributes.color === ptsColElev) ? 1 : 0.45; });
+  $("chk-pts").addEventListener("change", e => { pts.visible = e.target.checked; });
+  $("chk-cur").addEventListener("change", e => { curMajor.visible = curMinor.visible = e.target.checked; });
+  seg(["mdt-hyp", "mdt-shade"], null, id => { mdtMesh.geometry.setAttribute("color", id === "mdt-hyp" ? mdtColHyp : mdtColShade); });
+  seg(["pts-rgb", "pts-elev"], null, id => { pts.geometry.setAttribute("color", id === "pts-rgb" ? ptsColRGB : ptsColElev); });
+  $("rng-op").addEventListener("input", e => { const v = +e.target.value, m = mdtMesh.material; m.opacity = v; m.transparent = v < 1; m.depthWrite = v >= 1; m.needsUpdate = true; updateOutputs(); });
+  $("rng-ps").addEventListener("input", e => { pts.material.size = +e.target.value; updateOutputs(); });
+  $("rng-ex").addEventListener("input", e => {
+    const old = exag; exag = +e.target.value; world.scale.z = exag;
+    if (mode === "orbit") { controls.target.z *= exag / old; camera.position.z = (camera.position.z) * exag / old; }
+    else if (mode === "walk") camera.position.z = groundH * exag + 1.6;
+    updateOutputs();
+  });
+  for (const k of ["orbit", "fly", "walk"]) $("nav-" + k).addEventListener("click", () => setMode(k));
+  $("v-top").addEventListener("click", () => setView("top"));
+  $("v-persp").addEventListener("click", () => setView("persp"));
+  $("v-floor").addEventListener("click", floorView);
+  $("t-measure").addEventListener("click", () => setTool("measure"));
+  $("t-profile").addEventListener("click", () => setTool("profile"));
+  $("t-clear").addEventListener("click", clearTools);
+}
+
+/* ---------------- laço de renderização ---------------- */
+let hoverXY = null, lastHover = 0;
+const _v = new THREE.Vector3(), clock = new THREE.Clock();
+function resize() {
+  const w = window.innerWidth, h = window.innerHeight;
+  renderer.setSize(w, h, false); camera.aspect = w / h; updateOffset(); drawProfile();
+}
+function updateOffset() {
+  const w = window.innerWidth, h = window.innerHeight, wide = w > 760;
+  const sx = wide ? 166 : 0, sy = wide && !$("profile").hidden ? 100 : 0;
+  camera.setViewOffset(w, h, -sx, sy, w, h); camera.updateProjectionMatrix();
+}
+window.addEventListener("resize", resize);
+function frame() {
+  const dt = Math.min(0.05, clock.getDelta());
+  moveStep(dt);
+  if (mode === "orbit") controls.update();
+  renderer.render(scene, camera);
+  // leitura de coordenadas
+  const now = performance.now();
+  if (hoverXY && now - lastHover > 60) {
+    lastHover = now; const p = pick(hoverXY.x, hoverXY.y);
+    $("ro-e").textContent = p ? fmtC(p.x + META.E0) : "—"; $("ro-n").textContent = p ? fmtC(p.y + META.N0) : "—"; $("ro-z").textContent = p ? fmt(p.h + META.Z0) + " m" : "—";
+  }
+  // norte
+  camera.getWorldDirection(_f);
+  const azc = Math.abs(_f.z) > 0.999 ? 0 : Math.atan2(_f.x, _f.y);
+  const upv = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
+  const rot = Math.abs(_f.z) > 0.999 ? Math.atan2(upv.x, upv.y) : azc;
+  $("north-g").setAttribute("transform", `rotate(${(-rot * 180 / Math.PI).toFixed(1)} 27 27)`);
+  // rótulo da medição
+  if (measure && mlabel) {
+    _v.set((measure.A.x + measure.B.x) / 2, (measure.A.y + measure.B.y) / 2, ((measure.A.h + measure.B.h) / 2 + 0.03) * exag).project(camera);
+    const vis = _v.z < 1; mlabel.style.display = vis ? "" : "none";
+    mlabel.style.left = ((_v.x + 1) / 2 * window.innerWidth) + "px"; mlabel.style.top = ((1 - _v.y) / 2 * window.innerHeight) + "px";
+  }
+  requestAnimationFrame(frame);
+}
+
+/* ---------------- carga ---------------- */
+async function main() {
+  $("loadmsg").textContent = t("loading");
+  const [meta, mdt, nuvem, curvas] = await Promise.all(["meta", "mdt", "nuvem", "curvas"].map(n => getJSON(`data/${n}.json`)));
+  META = meta; $("loadmsg").textContent = t("building");
+  await new Promise(r => setTimeout(r, 20));
+  buildMDT(mdt); buildPoints(nuvem); buildContours(curvas);
+  wireUI(); applyLang(); resize(); setView("persp");
+  // perfil de exemplo: transversal ao eixo da voçoroca, na metade do comprimento
+  const yMid = center.y; let xa = null, xb = null;
+  for (let x = G.x0; x < G.x0 + G.w * G.dx; x += 0.1) { const h = heightAt(x, yMid); if (h === h) { if (xa === null) xa = x; xb = x; } }
+  if (xa !== null) { const A = { x: xa + 0.3, y: yMid, h: heightAt(xa + 0.3, yMid) }, B = { x: xb - 0.3, y: yMid, h: heightAt(xb - 0.3, yMid) }; addMarker(A); addMarker(B); makeProfile(A, B, t("sample")); }
+  $("loading").hidden = true;
+  requestAnimationFrame(frame);
+}
+main().catch(err => { $("loadmsg").textContent = (lang === "pt" ? "Erro ao carregar os dados: " : "Could not load the data: ") + err.message; console.error(err); });
+})();
+</script>
+</body>
+</html>
